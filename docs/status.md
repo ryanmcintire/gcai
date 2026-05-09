@@ -2,15 +2,17 @@
 
 ## Current focus
 
-**M1 — Project scaffold** (not started)
+**M2 — Upload + DOCX parse** (not started)
 
-Stand up Next.js 15 + TS + Tailwind + shadcn/ui + Vitest. Wire `package.json` scripts, `.env.example`, and confirm `npm run dev / typecheck / lint / test` are all green on a placeholder page.
+M1 scaffold is complete: Next.js 16 + TS + Tailwind v4 + shadcn/ui + Vitest. Placeholder page renders a shadcn `Card`; `dev`, `typecheck`, `lint`, `test` all green (2 sanity tests passing — node + jsdom). Note: scaffold installed Next.js **16** (latest stable as of 2026-05-08), not 15 as originally drafted; PRD/execution-plan still reference 15 — superseded by [CLAUDE.md](../CLAUDE.md).
+
+Next: build the DOCX upload UI + server action + `mammoth` parse.
 
 See [execution-plan.md](execution-plan.md) for the full milestone breakdown and [prd.md](prd.md) for product scope.
 
 ## Todos
 
-- [ ] **M1 — Project scaffold** (~0.5 h) — `npm run dev` boots a blank app; toolchain green
+- [x] **M1 — Project scaffold** (~0.5 h) — `npm run dev` boots a blank app; toolchain green
 - [ ] **M2 — Upload + DOCX parse** (~1.0 h) — drop DOCX → see extracted text
 - [ ] **M3 — Rubric + types + schema** (~0.75 h) — pure data module + zod schemas
 - [ ] **M4 — LLM provider + quote verification** (~1.25 h) — `DeepSeekProvider` returns validated, quote-verified `AssessmentResult`

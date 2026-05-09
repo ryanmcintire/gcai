@@ -6,11 +6,11 @@ Read-only DOCX triage tool.
 - [docs/execution-plan.md](docs/execution-plan.md) — milestone-by-milestone build plan (M1–M7) with goals, tasks, and verification per milestone.
 - [docs/status.md](docs/status.md) — current focus and milestone todos. Keep in sync as work progresses.
 
-Stateless Next.js 15 (App Router) + TypeScript 5.x. No auth, no database, no upload history.
+Stateless Next.js 16 (App Router) + TypeScript 5.x. No auth, no database, no upload history.
 
 ## Stack
 
-- **Framework:** Next.js 15 App Router; server actions handle upload + LLM call
+- **Framework:** Next.js 16 App Router (Turbopack is the dev default); server actions handle upload + LLM call. See [AGENTS.md](AGENTS.md) — Next 16 has breaking changes; consult `node_modules/next/dist/docs/` for current API before relying on prior knowledge.
 - **UI:** Tailwind + shadcn/ui (no CSS Modules, no inline styles)
 - **DOCX:** `mammoth` (server-side)
 - **LLM SDK:** `openai` package with DeepSeek `baseURL` — DeepSeek's own docs prescribe this. Do not add `@ai-sdk/deepseek` or another AI SDK.
