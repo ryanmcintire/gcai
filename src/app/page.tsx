@@ -1,21 +1,18 @@
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { UploadForm } from "@/components/upload-form";
 
 export default function Page() {
   return (
-    <main className="flex min-h-dvh items-center justify-center p-6">
-      <Card className="max-w-md p-6">
-        <CardHeader>
-          <CardTitle>Contract Benchmark Assistant</CardTitle>
-          <CardDescription>
-            Upload a vendor DOCX and triage 8 high-signal terms. Scaffold ready.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 p-6">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Contract Benchmark Assistant
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Upload a vendor DOCX (≤10 MB). Extracted text appears below — the
+          structured assessment lands in a later milestone.
+        </p>
+      </header>
+      <UploadForm />
     </main>
   );
 }

@@ -2,18 +2,18 @@
 
 ## Current focus
 
-**M2 — Upload + DOCX parse** (not started)
+**M3 — Rubric + types + schema** (next)
 
-M1 scaffold is complete: Next.js 16 + TS + Tailwind v4 + shadcn/ui + Vitest. Placeholder page renders a shadcn `Card`; `dev`, `typecheck`, `lint`, `test` all green (2 sanity tests passing — node + jsdom). Note: scaffold installed Next.js **16** (latest stable as of 2026-05-08), not 15 as originally drafted; PRD/execution-plan still reference 15 — superseded by [CLAUDE.md](../CLAUDE.md).
+M2 shipped: drag-drop upload, `assessContract` server action, `parseDocx` using `mammoth.extractRawText`. Result rendered in `<pre>` for paragraph-break verification. Tracked-changes confirmed handled by mammoth defaults — no manual stripping. `serverActions.bodySizeLimit` set to `11mb` in [next.config.ts](../next.config.ts). 4 new tests green against `src/lib/__fixtures__/sample.docx`.
 
-Next: build the DOCX upload UI + server action + `mammoth` parse.
+**Pending manual fidelity probes before M3** (per execution plan): drop a real MSA with auto-numbered sections AND a pricing/SLA table; confirm section markers (`5.2(a)`) survive and tables read coherently. If either fails, escalate to `mammoth.convertToHtml` + custom HTML→text transformer before starting rubric work.
 
 See [execution-plan.md](execution-plan.md) for the full milestone breakdown and [prd.md](prd.md) for product scope.
 
 ## Todos
 
 - [x] **M1 — Project scaffold** (~0.5 h) — `npm run dev` boots a blank app; toolchain green
-- [ ] **M2 — Upload + DOCX parse** (~1.0 h) — drop DOCX → see extracted text
+- [x] **M2 — Upload + DOCX parse** (~1.0 h) — drop DOCX → see extracted text
 - [ ] **M3 — Rubric + types + schema** (~0.75 h) — pure data module + zod schemas
 - [ ] **M4 — LLM provider + quote verification** (~1.25 h) — `DeepSeekProvider` returns validated, quote-verified `AssessmentResult`
 - [ ] **M5 — End-to-end pipeline** (~0.5 h) — drop DOCX → see real assessment as raw JSON
