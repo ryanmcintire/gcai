@@ -1,6 +1,6 @@
 {
   "milestone": 6,
-  "phase": "commit",
+  "phase": "done",
   "attempts": 0,
-  "notes": ""
+  "notes": "All 7 milestones complete. Qualitative 3-MSA QA pass (PRD §11.1, §11.3) remains user-driven."
 }
