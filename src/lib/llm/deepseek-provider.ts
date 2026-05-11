@@ -25,6 +25,8 @@ export interface OpenAILike {
         model: string;
         messages: ChatMessage[];
         response_format: { type: "json_object" };
+        temperature?: number;
+        seed?: number;
       }) => Promise<{
         choices: Array<{ message: { content: string | null } }>;
       }>;
@@ -129,6 +131,8 @@ export class DeepSeekProvider implements LLMProvider {
         truncated,
       };
     }
+    console.error("[deepseek] first attempt failed:", first.reason);
+    console.error("[deepseek] first raw response:", first.raw);
 
     const retryMessages: ChatMessage[] = [
       ...messages,
@@ -147,9 +151,11 @@ export class DeepSeekProvider implements LLMProvider {
         truncated,
       };
     }
+    console.error("[deepseek] retry attempt failed:", second.reason);
+    console.error("[deepseek] retry raw response:", second.raw);
 
     throw new LLMProviderError(
-      "LLM produced invalid output after one retry",
+      `LLM produced invalid output after one retry: ${second.reason}`,
       second.reason,
     );
   }
@@ -159,6 +165,7 @@ export class DeepSeekProvider implements LLMProvider {
       model: this.model,
       messages,
       response_format: { type: "json_object" },
+      temperature: 0,
     });
     const content = response.choices[0]?.message?.content;
     return evaluateAttempt(content);
