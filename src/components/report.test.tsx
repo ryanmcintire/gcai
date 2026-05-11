@@ -134,6 +134,46 @@ describe("Report", () => {
     expect(ids).toEqual(rubric.map((r) => r.id));
   });
 
+  it("renders a Download JSON button in the header", () => {
+    render(<Report result={buildResult()} />);
+    expect(
+      screen.getByRole("button", { name: /download json/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the all-verification-failed banner when every term is Verification Failed", () => {
+    const allFailed = Object.fromEntries(
+      TERM_IDS.map((id) => [
+        id,
+        {
+          verdict: "Verification Failed" as const,
+          quotedClause: "",
+          rationale: "Quoted clause could not be verified against the source contract.",
+          sectionRef: null,
+        },
+      ]),
+    ) as Partial<Record<TermId, Partial<TermAssessment>>>;
+    render(<Report result={buildResult(allFailed)} />);
+    expect(
+      screen.getByText(/None of the quoted clauses could be verified/i),
+    ).toBeInTheDocument();
+  });
+
+  it("does not render the all-verification-failed banner when verdicts are mixed", () => {
+    const result = buildResult({
+      data_ownership: {
+        verdict: "Verification Failed",
+        quotedClause: "",
+        rationale: "Quoted clause could not be verified against the source contract.",
+        sectionRef: null,
+      },
+    });
+    render(<Report result={result} />);
+    expect(
+      screen.queryByText(/None of the quoted clauses could be verified/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows verificationFailed sub-line iff verificationFailed > 0", () => {
     const { rerender } = render(<Report result={buildResult()} />);
     expect(screen.queryByText(/could not be verified/i)).not.toBeInTheDocument();

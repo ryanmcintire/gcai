@@ -1,61 +1,62 @@
-# Milestone: M6 — Results page UI
+# Milestone: M7 — QA pass + polish + JSON download
 
-Demo-ready report rendering per PRD §7 / §6.3. Replaces M5's raw-JSON `<pre>` block with cards, badges, summary, and a disclaimer. UI is purely presentational over the existing `AssessmentResult`.
+Final demo polish. Adds the user-facing **Download JSON** button (PRD §5 step 5), tightens the loading and error states, surfaces an explicit signal when verification fails wholesale, and replaces the default Next.js README with a project-specific quickstart. Also verifies the provider abstraction holds via a grep gate.
+
+**Out of automatable scope:** the *qualitative* 3-MSA QA pass (PRD §11.1) requires real vendor contracts and reviewer judgment — that step stays user-driven post-merge. status.md will record it as "code complete, manual QA pending." Everything else lands in this milestone.
 
 **Design notes:**
 
-1. **Rubric lookup is by `termId`.** Cards render in `rubric` order (the PRD-fixed canonical order). The component zips `result.terms` (already in PRD order — the server action guarantees it) with `rubric` so the renderer has access to each term's `label` and `notFoundInterpretation` without the LLM ever computing them.
-2. **Badge styling vs. `Not Found` styling is two-axis.** The verdict drives the badge label and base color (`Aggressive` / `Standard` / `Favorable` / `Not Found` / `Verification Failed`). When verdict is `Not Found`, the badge variant is further refined by the term's `notFoundInterpretation` (red_flag / neutral / favorable / manual_review). `Verification Failed` is its own treatment — distinct red-orange — and ignores `notFoundInterpretation`.
-3. **Summary copy mirrors PRD §7.** `X Aggressive · Y Standard · Z Favorable · N Not Found` — `Verification Failed` is *not* in the headline summary (per PRD §7's "Summary:" line) but verification-failed terms still render their card with the distinct treatment. If `verificationFailed > 0`, append a quieter second line `· M could not be verified` so reviewers see the count.
-4. **Truncation banner is informational, not destructive.** When `result.truncated === true`, show a one-line amber notice above the cards: "Contract text was truncated to fit the assessment window — verdicts cover the first portion of the document only."
-5. **Disclaimer banner is unconditional**, per PRD §6.3 verbatim: *"This is an automated triage tool. Not legal advice. Verify all findings against the source contract."*
-6. **Mobile-first.** Cards stack by default (single-column flex/grid); no responsive breakpoints required for the v0 demo. Long `quotedClause` strings wrap via `whitespace-pre-wrap break-words` in a monospace block.
-7. **Component tests use jsdom.** Existing convention: `// @vitest-environment jsdom` at the top of `.test.tsx` files for components. RTL + `@testing-library/jest-dom/vitest` matchers are already wired via `vitest.setup.ts`.
+1. **Download button is a separate client component**, not folded into `Report`. Keeps `Report` server-renderable and presentational. The button generates a Blob, creates an object URL, programmatically clicks an `<a download>`, then revokes the URL — the standard browser pattern. Filename: replace a trailing `.docx` (case-insensitive) on `result.filename` with `.assessment.json`; fall back to `assessment.json` if no `.docx` suffix.
+2. **Loading state** stays simple — add an `animate-spin` SVG ring next to the existing copy. Tailwind already supports `animate-spin`; no new dependencies. The change is purely visual; existing `aria-busy` plumbing is unchanged.
+3. **All-verification-failed banner** triggers when every term came back `Verification Failed` (a strong signal of LLM-quote misalignment or upstream parse damage). Threshold: `summary.verificationFailed === terms.length && terms.length > 0`. Distinct red-orange treatment to mirror the per-card badge style; copy invites the user to retry the upload. Not gated on a partial-failure threshold — partial failures already render per-card via the existing summary sub-line.
+4. **Error state coverage** for M7 is verified through the existing `actions.test.ts` cases (LLM error, validation-retry failed, generic-error) plus the new all-verification-failed UI banner. No new error pathways are needed — the M5 wiring already routes `ParseError`, `LLMProviderError`, and final schema-validation failures into the user-facing error banner.
+5. **README** keeps the existing Next.js template content out — replace with project-specific quickstart referencing `docs/prd.md`, `docs/execution-plan.md`, and the env setup. Brief on purpose; the docs/ tree is the source of truth.
+6. **Provider abstraction check** is a one-line grep — fast verification that nothing outside `src/lib/llm/` references `openai` or `deepseek` directly. If a hit appears, fix it before commit.
+7. **Component tests** for new behavior use the existing jsdom + RTL setup. For the download button, mock `URL.createObjectURL` / `URL.revokeObjectURL` and spy on the synthesized anchor click; do not actually open a download.
 
 ## Todos
 
-- [x] **Create `Disclaimer` component** — Pure presentational. Renders a small banner with the verbatim PRD §6.3 text and a muted-warning treatment (e.g., amber-tinted border + background). No props. Named export `Disclaimer`. _Done when: the component renders the exact PRD §6.3 string; visible-and-styled; no `'use client'`._ Files: `src/components/disclaimer.tsx`
+- [x] **Create `DownloadJsonButton` client component** — `'use client'`. Named export `DownloadJsonButton` with props interface `DownloadJsonButtonProps { result: AssessmentResult }`. Renders a `<Button variant="outline" size="sm">Download JSON</Button>`. onClick:
+  1. `const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" })`.
+  2. `const url = URL.createObjectURL(blob)`.
+  3. Build `a = document.createElement("a")`, set `a.href = url`, `a.download = downloadName(result.filename)`, append to body, click, remove.
+  4. `URL.revokeObjectURL(url)`.
+  Helper `downloadName(filename: string): string` — if `filename` ends with `.docx` (case-insensitive), return `filename.slice(0, -5) + ".assessment.json"`; otherwise return `"assessment.json"`. Export the helper for unit testing.
+  _Done when: file compiles under strict TS; the component renders a single button labeled "Download JSON"; no `any`._
+  Files: `src/components/download-json-button.tsx`
 
-- [x] **Create `VerdictBadge` component + variant map** — Named export `VerdictBadge` with props interface `VerdictBadgeProps { verdict: Verdict; notFoundInterpretation: NotFoundInterpretation }`. Reuses `Badge` from `@/components/ui/badge` with a `className` override per verdict:
-  - `Aggressive` → red/destructive treatment (red background, red text).
-  - `Standard` → muted/neutral (slate or zinc background).
-  - `Favorable` → green/positive (emerald background, emerald text).
-  - `Verification Failed` → amber-red "Could not verify" treatment, label text `"Verification Failed"`.
-  - `Not Found` → look up `notFoundInterpretation`:
-    - `red_flag` → red/destructive variant, label `"Not Found — Red Flag"`.
-    - `neutral` → muted variant, label `"Not Found"`.
-    - `favorable` → green variant, label `"Not Found — Favorable"`.
-    - `manual_review` → blue/info variant, label `"Not Found — Verify"`.
-  Implementation: a pure switch on `verdict`, with the `Not Found` arm switching on `notFoundInterpretation`. Define a `BADGE_LABELS` and `BADGE_CLASSES` map keyed by a discriminated string (`"aggressive" | "standard" | "favorable" | "verification_failed" | "not_found:red_flag" | "not_found:neutral" | "not_found:favorable" | "not_found:manual_review"`) to keep the JSX a single `<Badge>` element.
-  _Done when: file compiles under strict TS; all 8 visual states are reachable; no `any`._ Files: `src/components/verdict-badge.tsx`
+- [x] **Wire `DownloadJsonButton` into `Report`** — Import `DownloadJsonButton`. In the header block, place the button right-aligned next to the filename/summary text block (use `flex justify-between items-start gap-2`). Pass `result` through. Do not duplicate it anywhere else in the layout. _Done when: a successful upload renders a "Download JSON" button alongside the filename header in the report; no visual regression on the cards below._ Files: `src/components/report.tsx`
 
-- [x] **Create `Report` component** — Top-level presentational. Props: `ReportProps { result: AssessmentResult }`. Renders, in order:
-  1. **Header** — `result.filename` (semibold), and the summary line: `${summary.aggressive} Aggressive · ${summary.standard} Standard · ${summary.favorable} Favorable · ${summary.notFound} Not Found`. If `summary.verificationFailed > 0`, append a smaller line `${summary.verificationFailed} could not be verified`.
-  2. **Truncation banner** — only if `result.truncated === true`. Amber-tinted box with the design-note copy.
-  3. **Per-term cards** — iterate over `rubric` (imported from `@/lib/rubric`) and find the matching `result.terms.find(t => t.termId === rubricTerm.id)` (defensive — if missing, skip). Each card contains:
-     - Each card gets `data-term-id={rubricTerm.id}` for stable test ordering.
-     - Header row: `<VerdictBadge>` + the rubric term `label` (semibold) + `sectionRef` muted on the right if present.
-     - For `Not Found` / `Verification Failed`: skip the quoted clause; render rationale directly.
-     - For other verdicts: a `<pre>` with `whitespace-pre-wrap break-words font-mono text-xs` containing `quotedClause`, then the rationale below it.
-  4. **Disclaimer** — `<Disclaimer />` at the bottom.
-  Layout: `flex flex-col gap-4`, single column. Use shadcn `Card` / `CardHeader` / `CardContent`. No `'use client'`.
-  _Done when: given a hand-built `AssessmentResult` with 8 terms in PRD-fixed order, the component renders 8 cards with badges, term labels, quotes/rationales, and the disclaimer; truncation banner appears iff `truncated === true`._ Files: `src/components/report.tsx`
+- [x] **Unit test `DownloadJsonButton`** — `// @vitest-environment jsdom`. Build a hand-rolled `AssessmentResult` with `filename: "acme-msa.docx"`. Stub `URL.createObjectURL` (`vi.stubGlobal("URL.createObjectURL", ...)` or `vi.spyOn(URL, "createObjectURL")`) to return `"blob:mock"` and capture the `Blob` argument; stub `URL.revokeObjectURL`. Render `<DownloadJsonButton>`, click via `userEvent` or `fireEvent`, then assert:
+  1. `createObjectURL` was called with a `Blob` whose text content (await `blob.text()`) equals `JSON.stringify(result, null, 2)`.
+  2. `revokeObjectURL` was called with `"blob:mock"`.
+  3. An `<a>` with `download="acme-msa.assessment.json"` was synthesized (spy on `document.createElement` or assert on captured anchor attributes).
+  4. The synthesized anchor was removed from the DOM after click.
+  5. Unit-test `downloadName` directly: `"foo.docx"` → `"foo.assessment.json"`, `"foo.DOCX"` → `"foo.assessment.json"`, `"bar"` (no extension) → `"assessment.json"`, `"x.pdf"` (wrong extension) → `"assessment.json"`.
+  _Done when: 5+ assertions pass; `npm run test -- --run src/components/download-json-button.test.tsx` exits 0._
+  Files: `src/components/download-json-button.test.tsx`
 
-- [x] **Replace JSON `<pre>` in `upload-form.tsx` with `<Report />`** — In the success branch, replace `<pre>{JSON.stringify(success.result, null, 2)}</pre>` with `<Report result={success.result} />`. Keep the "Upload another" button. Remove the now-orphan filename label above the result (Report's header carries the filename — avoid duplication). _Done when: a successful upload shows the rendered report instead of raw JSON; "Upload another" still works; no duplicate filename display._ Files: `src/components/upload-form.tsx`
+- [x] **Polished loading state with spinner** — In `src/components/upload-form.tsx`, when `isPending`, render a small spinner alongside the existing copy. Add an inline SVG (`<svg className="h-4 w-4 animate-spin ...">` with a circle outline + an arc — standard pattern) only inside the `isPending` branch. Wrap spinner + text in a `<div className="flex items-center gap-2">`. Keep `aria-busy` on the dropzone. _Done when: while `isPending`, an animated spinner shows next to "Parsing DOCX and assessing terms…"; idle state is unchanged._ Files: `src/components/upload-form.tsx`
 
-- [x] **Update page intro copy for M6 reality** — Edit `src/app/page.tsx` to drop the "appears below as JSON; a polished report lands in a later milestone" line. New subtitle: "Upload a vendor DOCX (≤10 MB) to get a structured triage report against B2B SaaS norms across 8 high-signal terms." _Done when: page copy no longer references "JSON" or "later milestone"._ Files: `src/app/page.tsx`
+- [x] **Add all-verification-failed banner to `Report`** — Render a top-of-cards banner (above the per-term card list, below the truncation banner) when `summary.verificationFailed === terms.length && terms.length > 0`. Distinct red-orange treatment (border + background, e.g., `border-orange-300/60 bg-orange-50 text-orange-900` with dark variants matching the existing truncation banner). Copy: *"None of the quoted clauses could be verified against the contract text. The assessment may not be reliable — try re-uploading the contract."* Use `role="alert"`. _Done when: when 8/8 terms have `Verification Failed`, the banner renders above the cards; when at least one term has any other verdict, the banner does not render._ Files: `src/components/report.tsx`
 
-- [x] **Test `VerdictBadge` — all 8 visual states** — Create `src/components/verdict-badge.test.tsx` with `// @vitest-environment jsdom` directive. Render each combination once and assert: (1) badge text label matches the expected copy from the design notes; (2) `data-slot="badge"` element is present; (3) for `Not Found` variants, the rendered label differs across the 4 `notFoundInterpretation` values; (4) `Aggressive` and `Not Found / red_flag` both render but produce **different labels** so they're distinguishable to the user. Use `render` + `screen.getByText` from RTL. _Done when: 8 assertions pass; `npm run test -- --run src/components/verdict-badge.test.tsx` exits 0._ Files: `src/components/verdict-badge.test.tsx`
+- [x] **Extend `Report` test coverage** — In `src/components/report.test.tsx`, add cases:
+  1. The "Download JSON" button is rendered in the report header (assert by accessible name).
+  2. When the fixture has all 8 terms set to `Verification Failed` (build a dedicated fixture), the all-verification-failed banner renders (assert via `getByRole("alert", { name: /quoted clauses could be verified/i })` or `getByText(/None of the quoted clauses could be verified/i)`).
+  3. When the existing mixed-verdict fixture is used, the all-verification-failed banner does NOT render (`queryByText(/None of the quoted clauses could be verified/i)` is null).
+  _Done when: existing 8 assertions still pass, 3 new assertions pass; `npm run test -- --run src/components/report.test.tsx` exits 0._
+  Files: `src/components/report.test.tsx`
 
-- [x] **Test `Report` rendering** — Create `src/components/report.test.tsx` with `// @vitest-environment jsdom`. Build a hand-rolled `AssessmentResult` with 8 terms (mix of verdicts to cover Standard, Aggressive, Favorable, Not Found, Verification Failed at least once). Cases:
-  - (a) Filename and summary line render (`X Aggressive · Y Standard · Z Favorable · N Not Found`) with the correct counts.
-  - (b) Disclaimer text from PRD §6.3 is present verbatim.
-  - (c) When `truncated === true`, the truncation banner text is visible; when `truncated === false`, it is not.
-  - (d) For a `Standard` term, the `quotedClause` text is rendered.
-  - (e) For a `Not Found` term, the `quotedClause` is NOT rendered (only rationale).
-  - (f) For a `Verification Failed` term, the `quotedClause` is NOT rendered (only rationale); the badge label reflects the verification-failed state.
-  - (g) Cards render in PRD-fixed `rubric` order — query `container.querySelectorAll("[data-term-id]")` and assert the sequence of `getAttribute("data-term-id")` values matches `rubric.map(r => r.id)`.
-  - (h) When `summary.verificationFailed > 0`, the "could not be verified" sub-line renders. When `summary.verificationFailed === 0` (separate fixture), that sub-line does NOT render — assert `queryByText(/could not be verified/i)` is null.
-  _Done when: all 8 assertions pass._ Files: `src/components/report.test.tsx`
+- [x] **Rewrite README with project quickstart** — Replace the default `create-next-app` README with project-specific content. Sections:
+  1. Title + one-line description (DOCX contract triage tool).
+  2. Pointer line to `docs/prd.md` (product spec) and `docs/execution-plan.md` (milestones).
+  3. **Prerequisites:** Node 20+, a DeepSeek API key.
+  4. **Setup:** `npm install`, `cp .env.example .env.local`, set `DEEPSEEK_API_KEY`.
+  5. **Commands:** `npm run dev` (localhost:3000), `npm run test`, `npm run lint`, `npm run typecheck`, `npm run build`.
+  6. **Scope:** stateless, no auth, no persistence, `.docx` only, ≤10 MB, see PRD §3 for full scope cuts.
+  _Done when: README has no remaining `create-next-app` template text; renders coherently as a project quickstart._
+  Files: `README.md`
 
-- [x] **Toolchain green** — `npm run typecheck && npm run lint && npm run test` all exit 0. No new `any`. No business logic in components (no fetch, no parsing — pure presentation over `AssessmentResult`). _Done when: all three commands exit 0._
+- [x] **Verify provider abstraction (grep gate)** — Run `grep -RIn --include='*.ts' --include='*.tsx' -E 'openai|deepseek' src/ | grep -v '^src/lib/llm/'`. Expected: zero output (success criterion PRD §11.4). If hits surface, fix them before continuing. Also check `import { OpenAI }` and any direct SDK references. Record the result in `docs/status.md` (e.g., "Provider abstraction grep: 0 hits outside src/lib/llm/"). _Done when: the grep command exits with no output; status.md is updated with the result._ Files: (verification only; `docs/status.md` for the note)
+
+- [x] **Toolchain green** — `npm run typecheck && npm run lint && npm run test` all exit 0. No new `any`. No new dependencies. _Done when: all three commands exit 0._

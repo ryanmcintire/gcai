@@ -171,7 +171,7 @@ Stretch (cut if running long, per PRD §10): PDF/markdown export, chunked long-c
 
 ---
 
-## M7 — QA pass + polish + JSON download (~1.0 h)
+## M7 — QA pass + polish + JSON download (~1.0 h) ✅
 
 **Goal:** Verdicts are qualitatively correct on 3 MSAs; report is downloadable; rough edges smoothed.
 
