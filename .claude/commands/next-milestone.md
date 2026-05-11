@@ -1,5 +1,5 @@
 ---
-description: Advance one phase of the current milestone (plan → critique → implement → test → commit)
+description: Run the current milestone through plan → critique → implement → test → commit, stopping after commit or on retry-cap exhaustion.
 ---
 
 Read the following files to understand current context:
@@ -26,9 +26,21 @@ If `.milestone-state.json` does not exist, create it:
 `attempts` tracks critique and test retry counts to prevent infinite loops.
 `notes` holds context to carry between phases (e.g., what failed in tests).
 
+## Execution Loop
+
+On invocation:
+1. Load `.milestone-state.json` (or create it as described above).
+2. If `phase == "done"`, report "All milestones complete." and exit.
+3. Otherwise, execute the current phase per the Phase Execution rules below.
+4. After the phase finishes, persist `.milestone-state.json` and check the stop conditions:
+   - **Stop** if the phase just executed was `commit` — the milestone is now committed, and state has already been advanced to the next milestone's `plan` phase (or to `done`). Do not begin planning the next milestone in this invocation.
+   - **Stop and surface to the user** if a retry cap was exhausted this phase (see updated critique/test rules below). Do not advance the phase.
+   - Otherwise loop back to step 3 with the new `phase`.
+5. End the invocation with a one- or two-sentence summary of what was completed and where state landed.
+
 ## Phase Execution
 
-Based on the current `phase` in `.milestone-state.json`, execute exactly ONE phase per invocation:
+Based on the current `phase` in `.milestone-state.json`, execute the matching phase below. The Execution Loop above governs whether to continue to the next phase after each one finishes.
 
 ### Phase: `plan`
 
@@ -57,19 +69,23 @@ Based on the current `phase` in `.milestone-state.json`, execute exactly ONE pha
    - Are error handling and edge cases accounted for?
    - Are there missing todos implied by the PRD but not listed?
    - Is the scope right — nothing too vague, nothing gold-plated?
-3. If changes are needed and `attempts` < 3: revise `docs/todos.md`, increment `attempts`, keep phase as `"critique"`.
-4. If satisfied OR `attempts` >= 3: set phase to `"implement"`, reset `attempts` to `0`.
-5. Write `.milestone-state.json`.
+3. If changes are needed and `attempts` < 3: revise `docs/todos.md`, increment `attempts`, keep phase as `"critique"`, write `.milestone-state.json`, and let the Execution Loop run critique again.
+4. If satisfied: set phase to `"implement"`, reset `attempts` to `0`, write `.milestone-state.json`, and let the Execution Loop continue.
+5. If `attempts` >= 3 and still not satisfied: write `.milestone-state.json` with the unresolved concerns recorded in `notes` (phase stays `"critique"`), surface those concerns to the user, and **halt the loop**. Do not advance to `implement`.
 
 ### Phase: `implement`
 
+Iterate over `docs/todos.md` from top to bottom within this phase: pick the first unchecked todo, implement it, mark it `[x]`, persist `.milestone-state.json`, and continue with the next unchecked todo. Persisting state per todo preserves crash recovery — if the run is interrupted mid-milestone, the next invocation resumes at the next unchecked todo.
+
+For each todo:
 1. Read `docs/todos.md`. Find the first todo not marked `[x]`.
 2. Implement that single todo. Follow the PRD requirements and any notes in the state file.
 3. Mark the todo `[x]` in `docs/todos.md`.
-4. If all todos are now `[x]`: set phase to `"test"`, reset `attempts` to `0`.
-5. If incomplete todos remain: keep phase as `"implement"`.
-6. Update `docs/status.md` with progress.
-7. Write `.milestone-state.json`.
+4. Update `docs/status.md` with progress.
+5. Write `.milestone-state.json` (phase stays `"implement"` while todos remain).
+6. Loop within the implement phase to the next unchecked todo.
+
+When all todos are `[x]`: set phase to `"test"`, reset `attempts` to `0`, write `.milestone-state.json`, and let the Execution Loop continue.
 
 ### Phase: `test`
 
@@ -81,7 +97,8 @@ Based on the current `phase` in `.milestone-state.json`, execute exactly ONE pha
    - Increment `attempts`, keep phase as `"test"`.
 4. If tests fail and `attempts` >= 5:
    - Record the persistent failures in `notes` and `docs/status.md`.
-   - Set phase to `"commit"` anyway, with `notes` explaining unresolved failures.
+   - Write `.milestone-state.json` with `phase` still `"test"`.
+   - Surface the failing output to the user and **halt the loop**. Do NOT advance to `commit`.
 5. Write `.milestone-state.json`.
 
 ### Phase: `commit`
@@ -94,12 +111,14 @@ Based on the current `phase` in `.milestone-state.json`, execute exactly ONE pha
 5. Check if there are remaining milestones:
    - If yes: increment `milestone`, set phase to `"plan"`, reset `attempts` and `notes`. Write `.milestone-state.json`.
    - If no: write `"phase": "done"` to `.milestone-state.json`. Update `docs/status.md` to reflect all milestones complete. Report "All milestones complete."
+6. This is the terminal phase for this invocation. Do NOT loop back into the next milestone's `plan` phase — exit the Execution Loop after writing state and reporting the commit.
 
 ## Rules
 
-- Execute exactly ONE phase per invocation. Do not chain phases.
-- Always write `.milestone-state.json` at the end of every invocation.
+- Run continuously through phases until the current milestone is committed, then stop. Do not advance into the next milestone's plan phase in the same invocation.
+- Always write `.milestone-state.json` between phases so an interrupted run can resume cleanly.
 - Always update `docs/status.md` with meaningful progress notes.
 - If `phase` is `"done"`, report that all milestones are complete and take no action.
 - Never skip the critique phase.
 - Never leave `docs/todos.md` in a partial/corrupt state.
+- On retry-cap exhaustion in `critique` or `test`, halt the loop and surface the issue to the user rather than falling through to the next phase.
