@@ -1,13 +1,18 @@
 "use server";
 
 import { parseDocx, ParseError } from "@/lib/parse";
+import { getProvider, LLMProviderError } from "@/lib/llm";
+import { verifyQuotes } from "@/lib/llm/verify-quotes";
+import { rubric } from "@/lib/rubric";
+import { assessmentResultSchema } from "@/lib/schema";
+import type { AssessmentResult } from "@/types/assessment";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 export type AssessResult =
-  | { ok: true; filename: string; text: string }
+  | { ok: true; result: AssessmentResult }
   | { ok: false; error: string };
 
 export async function assessContract(
@@ -34,15 +39,30 @@ export async function assessContract(
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const text = await parseDocx(buffer);
-    return { ok: true, filename: file.name, text };
+    const provider = getProvider();
+    const providerResult = await provider.assess(text, rubric);
+    const verified = verifyQuotes(providerResult, text);
+    const result: AssessmentResult = { filename: file.name, ...verified };
+    const validated = assessmentResultSchema.safeParse(result);
+    if (!validated.success) {
+      console.error("assessContract: final schema validation failed", validated.error.issues);
+      return {
+        ok: false,
+        error: "Assessment output failed validation. Please try again.",
+      };
+    }
+    return { ok: true, result };
   } catch (err) {
     if (err instanceof ParseError) {
+      return { ok: false, error: err.message };
+    }
+    if (err instanceof LLMProviderError) {
       return { ok: false, error: err.message };
     }
     console.error("assessContract failed", err);
     return {
       ok: false,
-      error: "Could not read this DOCX. Please try a different file.",
+      error: "Could not complete the assessment. Please try again.",
     };
   }
 }

@@ -107,7 +107,7 @@ export function UploadForm() {
       >
         <p className="text-sm font-medium">
           {isPending
-            ? "Parsing DOCX…"
+            ? "Parsing DOCX and assessing terms…"
             : "Drop a .docx vendor contract here, or click to select"}
         </p>
         <p className="text-xs text-muted-foreground">
@@ -134,13 +134,13 @@ export function UploadForm() {
       {success && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">{success.filename}</p>
+            <p className="text-sm font-medium">{success.result.filename}</p>
             <Button variant="outline" size="sm" onClick={reset}>
               Upload another
             </Button>
           </div>
           <pre className="max-h-[60vh] overflow-auto rounded-md border bg-muted p-3 text-xs whitespace-pre-wrap break-words">
-            {success.text}
+            {JSON.stringify(success.result, null, 2)}
           </pre>
         </div>
       )}

@@ -1,6 +1,6 @@
 {
-  "milestone": 3,
+  "milestone": 4,
   "phase": "commit",
   "attempts": 0,
-  "notes": "M4 tests all green: 51 tests across 9 files. typecheck + lint clean."
+  "notes": ""
 }

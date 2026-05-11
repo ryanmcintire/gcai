@@ -8,8 +8,8 @@ export default function Page() {
           Contract Benchmark Assistant
         </h1>
         <p className="text-sm text-muted-foreground">
-          Upload a vendor DOCX (≤10 MB). Extracted text appears below — the
-          structured assessment lands in a later milestone.
+          Upload a vendor DOCX (≤10 MB). The assessment appears below as JSON;
+          a polished report lands in a later milestone.
         </p>
       </header>
       <UploadForm />

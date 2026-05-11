@@ -121,7 +121,7 @@ Stretch (cut if running long, per PRD §10): PDF/markdown export, chunked long-c
 
 ---
 
-## M5 — End-to-end pipeline (~0.5 h)
+## M5 — End-to-end pipeline (~0.5 h) ✅
 
 **Goal:** Connect M2 + M4. The server action returns a real `AssessmentResult`. Page shows raw JSON — UI is M6's job.
 

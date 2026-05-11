@@ -1,55 +1,58 @@
-# Milestone: M4 — LLM provider + quote verification
+# Milestone: M5 — End-to-end pipeline
 
-Credibility-critical milestone. Ships the `LLMProvider` interface, the single concrete `DeepSeekProvider`, the prompt assembly, the env-driven factory, and the `verifyQuotes` post-processor that enforces the CLAUDE.md mandate: never render an unverified quote.
+Connect M2 (upload+parse) to M4 (provider+verify). The server action returns a real `AssessmentResult`; the page renders it as raw JSON. UI polish (cards, badges, summary) belongs to M6 and is **out of scope** here.
 
-**Design notes (resolving cross-milestone ambiguities):**
+**Design notes:**
 
-1. **Provider return type is `ProviderAssessmentResult = Omit<AssessmentResult, "filename">`.** The provider does not know the filename — that is a UI/upload concern, added by the M5 server action. PRD §9.4 calls its interface a "sketch"; this refinement keeps LLM code free of file metadata while preserving the round-trip shape.
-2. **LLM output JSON shape is `{ terms: TermAssessment[] }` — no summary, no filename, no truncated flag.** The provider computes `summary` locally by counting verdicts (the LLM has no business tallying its own output) and sets `truncated` based on prompt assembly. A new `llmOutputSchema` in `src/lib/schema.ts` validates just `{ terms }`, reusing the M3-exported `termAssessmentSchema`.
-3. **Token-budget proxy is character-count, not real tokenization.** `MAX_CONTRACT_CHARS = 240_000` (≈60k tokens at ~4 chars/token English) — conservative; avoids pulling a tokenizer dependency for a prototype with a single LLM.
-4. **Mock-boundary clarification.** CLAUDE.md says "mock the LLM at the `LLMProvider` boundary, not by stubbing `fetch` or the SDK" — that rule governs *consumers* (server action, page tests). For testing `DeepSeekProvider` itself, the next-deeper boundary is the OpenAI SDK client; we inject a fake client via the constructor. That isolates the SDK without stubbing it globally.
+1. **`AssessResult` success variant becomes `{ ok: true; result: AssessmentResult }`** — drops the M2 placeholder `text` field. `filename` lives inside `result.filename`. The action is the only place that attaches `filename` to the `ProviderAssessmentResult`.
+2. **Defensive final-schema check** — even though `DeepSeekProvider` already validates with `llmOutputSchema`, the assembled `AssessmentResult` (filename + summary + terms + truncated) is parsed through `assessmentResultSchema` as a last-mile guard before returning to the client. Cheap, and means schema drift cannot leak.
+3. **Error taxonomy** — three failure shapes mapped to `{ ok: false, error }`:
+   - File validation (size/empty/non-docx) — existing copy.
+   - `ParseError` — existing copy.
+   - `LLMProviderError` — surface the provider's `message` (it's already user-safe — e.g., "DEEPSEEK_API_KEY is not set", "LLM produced invalid output after one retry").
+   - Anything else — generic "Assessment failed; please try again." with `console.error` server-side.
+4. **Mock at the `LLMProvider` boundary, not the SDK** — CLAUDE.md mandate. Tests mock `@/lib/llm`'s `getProvider` to return a hand-built provider; they do not stub `fetch` or the OpenAI client.
 
 ## Todos
 
-- [x] **Define `LLMProvider` interface and provider-return type** — Create `src/lib/llm/types.ts`. Export: (a) `interface LLMProvider { assess(contractText: string, rubric: readonly RubricTerm[]): Promise<ProviderAssessmentResult> }`; (b) `type ProviderAssessmentResult = Omit<AssessmentResult, "filename">`; (c) `class LLMProviderError extends Error` with optional `cause`. _Done when: file compiles under strict TS; no `any`; `ProviderAssessmentResult` is a derived alias (not a re-declaration) so it stays in sync with `AssessmentResult`._ Files: `src/lib/llm/types.ts`
+- [x] **Update `AssessResult` shape in `src/app/actions.ts`** — Change the success variant from `{ ok: true; filename: string; text: string }` to `{ ok: true; result: AssessmentResult }`. Import `AssessmentResult` from `@/types/assessment`. Keep the failure variant unchanged. _Done when: type is updated; file compiles after the next todo wires the real return value._ Files: `src/app/actions.ts`
 
-- [x] **Add `llmOutputSchema` for raw LLM JSON + tests** — Extend `src/lib/schema.ts` with `llmOutputSchema = z.object({ terms: z.array(termAssessmentSchema).length(8) }).superRefine(unique-termIds)`. Same uniqueness rule as `assessmentResultSchema` refinement A. Export `llmOutputSchema`. Add cases to existing `src/lib/schema.test.ts` (do not create a parallel file — keep schema coverage co-located): (a) valid `{ terms: [...8] }` passes; (b) duplicate termIds fails (refinement); (c) 7 or 9 terms fails (length). _Done when: schema parses a valid 8-term `{ terms: [...] }` payload, rejects duplicate termIds, rejects fewer/more than 8._ Files: `src/lib/schema.ts`, `src/lib/schema.test.ts`
+- [x] **Wire LLM + verifyQuotes into `assessContract`** — After the successful `parseDocx(buffer)`, in order:
+  1. `const provider = getProvider();` (import from `@/lib/llm`)
+  2. `const providerResult = await provider.assess(text, rubric);` (import `rubric` from `@/lib/rubric`)
+  3. `const verified = verifyQuotes(providerResult, text);` (import from `@/lib/llm/verify-quotes`)
+  4. `const result: AssessmentResult = { filename: file.name, ...verified };`
+  5. Run `assessmentResultSchema.safeParse(result)` — if `success: false`, `console.error` the issues and return `{ ok: false, error: "Assessment output failed validation. Please try again." }`.
+  6. Return `{ ok: true, result }`.
+  _Done when: the happy path produces a populated `AssessmentResult` with `filename`, `summary`, 8 `terms`, and the optional `truncated` flag bubbled up from the provider._ Files: `src/app/actions.ts`
 
-- [x] **Author prompt builder** — Create `src/lib/llm/prompt.ts`. Export `MAX_CONTRACT_CHARS = 240_000` and pure function `buildPrompt(contractText, rubric): { system: string; user: string; truncated: boolean }`. System prompt: persona (legal triage assistant), the 8-row rubric rendered as a compact table with `id`, `label`, `expectedPresence`, and the three verdict-criteria strings, plus the exact JSON output schema instruction (`{ "terms": [ { "termId": ..., "verdict": "Standard|Aggressive|Favorable|Not Found", "quotedClause": "...", "rationale": "...", "sectionRef": "..." | null } x 8 ] }` in PRD-fixed term order). Crucial instruction: "Quote the clause verbatim from the contract text; do not paraphrase. If the term is not present, set verdict to 'Not Found', quotedClause to empty string, sectionRef to null." User prompt: contract text, truncated to `MAX_CONTRACT_CHARS` if longer; if truncated, the truncation point is the char limit (suffix discarded). `truncated` flag returned. _Done when: short contract → `truncated === false`, long contract → `truncated === true` and `user.length ≤ MAX_CONTRACT_CHARS`, system prompt contains all 8 term IDs in PRD-fixed order._ Files: `src/lib/llm/prompt.ts`
+- [x] **Add LLM-error branch + tighten generic copy in action's catch** — In the existing `try/catch`:
+  1. Add `if (err instanceof LLMProviderError) return { ok: false, error: err.message };` before the generic fallback. Import `LLMProviderError` from `@/lib/llm`.
+  2. Keep the `ParseError` branch returning its existing parse-specific copy.
+  3. Change the generic fallback message from `"Could not read this DOCX. Please try a different file."` to `"Could not complete the assessment. Please try again."` — the old copy is misleading now that the catch covers both parse and LLM failure modes (parse failures still hit the `ParseError` branch above).
+  Keep `console.error("assessContract failed", err)` in the generic branch. _Done when: an `LLMProviderError` thrown from `assess` surfaces its message to the UI without a stack; `ParseError` keeps its DOCX-specific copy; anything else returns the generic assessment-failure message._ Files: `src/app/actions.ts`
 
-- [x] **Implement `DeepSeekProvider`** — Create `src/lib/llm/deepseek-provider.ts`. Class `DeepSeekProvider implements LLMProvider`. Constructor: `({ apiKey: string, model?: string, baseURL?: string, client?: OpenAILike })` where `OpenAILike` is a local structural type — explicitly: `{ chat: { completions: { create: (params: { model: string; messages: Array<{ role: "system" | "user" | "assistant"; content: string }>; response_format: { type: "json_object" } }) => Promise<{ choices: Array<{ message: { content: string | null } }> }> } } }`. Defaults: `model = "deepseek-chat"`, `baseURL = "https://api.deepseek.com"`. If `client` not provided, constructs `new OpenAI({ apiKey, baseURL })`. `assess(contractText, rubric)`:
-  1. `const { system, user, truncated } = buildPrompt(contractText, rubric);`
-  2. First call: `client.chat.completions.create({ model, messages: [{role:"system",content:system},{role:"user",content:user}], response_format: { type: "json_object" } })`.
-  3. Extract `content = choices[0]?.message?.content`. If `content` is null/undefined/empty string → treat as a validation failure (do not throw mid-attempt — flow into retry path). Else `JSON.parse(content)` in a `try`/`catch`; a parse throw also flows into retry path. Else `llmOutputSchema.safeParse(parsed)`; if `success: false`, retry.
-  4. Retry once: append the prior assistant content (or empty placeholder if missing) + a corrective user message: `"Your previous response failed validation: <issues or 'response was not valid JSON' or 'response was empty'>. Return only valid JSON matching the schema described in the system prompt. Do not include any prose."` Repeat extract/parse/validate.
-  5. If retry also fails: `throw new LLMProviderError("LLM produced invalid output after one retry", cause)` where `cause` carries the last failure (parse error or zod issue list).
-  6. On success: compute `summary` by counting verdicts across `terms` (all 5 verdict states represented as integer counts — `verificationFailed` will be 0 here; `verifyQuotes` may bump it later); return `{ summary, terms, truncated }`.
-  Inject `client` for testability; do not read `process.env` in this file. _Done when: class compiles; happy-path unit test passes; retry-once-then-throw behavior covered by tests; missing/null content path covered; no `any` (the `OpenAILike` structural type narrows the surface)._ Files: `src/lib/llm/deepseek-provider.ts`
+- [x] **Render the JSON result in `upload-form.tsx`** — Replace `<pre>{success.text}</pre>` with `<pre>{JSON.stringify(success.result, null, 2)}</pre>` and the filename label `{success.filename}` with `{success.result.filename}`. _Done when: a successful upload shows pretty-printed JSON with summary + 8 terms in PRD-fixed order; no stale `success.text` reference remains._ Files: `src/components/upload-form.tsx`
 
-- [x] **Implement `verifyQuotes` post-processor** — Create `src/lib/llm/verify-quotes.ts`. Pure function `verifyQuotes(result: ProviderAssessmentResult, sourceText: string): ProviderAssessmentResult`. For each term:
-  - If `verdict` is `"Not Found"` or `"Verification Failed"`: pass through unchanged.
-  - Else: normalize both `term.quotedClause` and `sourceText` by `replace(/\s+/g, " ").trim()`; if normalized quote is a substring of normalized source, keep the term as-is; otherwise replace with `{ termId, verdict: "Verification Failed", quotedClause: "", rationale: "Quoted clause could not be verified against the source contract.", sectionRef: null }`.
-  - After processing all terms, recompute `summary` from the new term verdicts so counts reflect any downgrades. Return new object (do not mutate input). _Done when: every test case in the test todo passes; function is pure (same input → same output, no side effects, no env reads)._ Files: `src/lib/llm/verify-quotes.ts`
+- [x] **Update busy-state copy** — Change the dropzone's `isPending` label from `"Parsing DOCX…"` to `"Parsing DOCX and assessing terms…"` so the user understands the LLM call is the slow phase. Keep `aria-busy` plumbing untouched. _Done when: while the action is in flight, the dropzone shows the new copy._ Files: `src/components/upload-form.tsx`
 
-- [x] **Implement `getProvider()` factory** — Create `src/lib/llm/index.ts`. Export `getProvider(): LLMProvider`. Read `process.env.LLM_PROVIDER ?? "deepseek"`. If `"deepseek"`: read `LLM_MODEL ?? "deepseek-chat"` and `DEEPSEEK_API_KEY` (throw `LLMProviderError("DEEPSEEK_API_KEY is not set")` if missing/empty), return `new DeepSeekProvider({ apiKey, model })`. For any other value: throw `LLMProviderError("Unknown LLM provider: <name>")`. Re-export `LLMProvider`, `ProviderAssessmentResult`, `LLMProviderError` from `./types`. _Done when: factory test cases all pass._ Files: `src/lib/llm/index.ts`
+- [x] **Update the page's intro copy** — Edit `src/app/page.tsx` to replace the M2-era subtitle ("Extracted text appears below — the structured assessment lands in a later milestone.") with a one-liner that matches M5 reality, e.g., "Upload a vendor DOCX (≤10 MB). The assessment appears below as JSON; a polished report lands in M6." _Done when: the page no longer claims the assessment is a later milestone._ Files: `src/app/page.tsx`
 
-- [x] **Test `verifyQuotes`** — Create `src/lib/llm/verify-quotes.test.ts`. Cover (a) exact verbatim match → term unchanged; (b) whitespace-tolerant match (extra newlines/spaces in source, single-spaced in quote) → unchanged; (c) outright mismatch → term replaced with `"Verification Failed"`, empty quote, generic rationale, null sectionRef; (d) input verdict `"Not Found"` → unchanged regardless of `quotedClause` content; (e) input verdict already `"Verification Failed"` → unchanged; (f) after one downgrade, `summary` reflects the new counts (e.g., `standard` decremented and `verificationFailed` incremented); (g) function returns a new object — does not mutate the input. _Done when: all cases green; `npm run test -- --run src/lib/llm/verify-quotes.test.ts` exits 0._ Files: `src/lib/llm/verify-quotes.test.ts`
+- [x] **Tests: server action happy + error paths** — Create `src/app/actions.test.ts`. Mock the LLM at the `LLMProvider` boundary (CLAUDE.md mandate) using:
+  ```ts
+  vi.mock("@/lib/llm", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+    return { ...actual, getProvider: vi.fn() };
+  });
+  ```
+  (so `LLMProviderError` remains the real class for `instanceof` checks). Also `vi.mock("@/lib/parse", ...)` so the action doesn't touch mammoth; have `parseDocx` resolve with a known source text whose substrings match the happy-path provider's quotes. Build a minimal `File` from `new File([new Uint8Array([0])], "test.docx", { type: DOCX_MIME })` — the bytes don't matter because `parseDocx` is mocked. Cases:
+  - (a) **Happy path** — provider returns a `ProviderAssessmentResult` with summary + 8 terms in PRD-fixed order; all `Standard`/`Aggressive`/`Favorable` quotes are substrings of the mocked parsed text. Action returns `{ ok: true, result }`. Assertions: `result.filename === "test.docx"`; `result.terms.length === 8`; `result.terms.map(t => t.termId)` matches PRD-fixed order from `rubric`; `result.summary` matches the provider's output (no downgrades); `assess` called once with `(parsedText, rubric)`.
+  - (b) **Truncated bubbles through** — provider returns `truncated: true`. Action's `result.truncated === true`.
+  - (c) **`verifyQuotes` is in the pipeline** — provider returns one term with a quotedClause NOT in the mocked source text. Action's corresponding term has `verdict === "Verification Failed"` and `result.summary.verificationFailed === 1`. (Quick wiring check; deep coverage lives in `verify-quotes.test.ts`.)
+  - (d) **`LLMProviderError`** — mocked `assess` rejects with `new LLMProviderError("DEEPSEEK_API_KEY is not set")`. Action returns `{ ok: false, error: "DEEPSEEK_API_KEY is not set" }`.
+  - (e) **Schema validation failure** — mocked `assess` resolves with a malformed `ProviderAssessmentResult` (e.g., only 7 terms). Action returns `{ ok: false, error: "Assessment output failed validation. Please try again." }`.
+  - (f) **File-validation short-circuits before provider** — a non-`.docx` (or oversize/empty) file returns the existing error and the mocked `assess` is **not** called.
+  - (g) **Generic error** — mocked `assess` rejects with `new Error("boom")` (not `LLMProviderError`, not `ParseError`). Action returns `{ ok: false, error: "Could not complete the assessment. Please try again." }`.
+  _Done when: all 7 cases green under `npm run test`._ Files: `src/app/actions.test.ts`
 
-- [x] **Test prompt builder** — Create `src/lib/llm/prompt.test.ts`. Cover (a) short text → `truncated === false`; user prompt contains the input contract text verbatim; system prompt contains all 8 termIds in PRD-fixed order and references all three verdict-criteria buckets per term; (b) long text (length > `MAX_CONTRACT_CHARS`) → `truncated === true`, `user.length ≤ MAX_CONTRACT_CHARS`; (c) system prompt mentions the 4 LLM-producible verdicts (`Standard`, `Aggressive`, `Favorable`, `Not Found`) and instructs verbatim quoting. _Done when: all assertions pass._ Files: `src/lib/llm/prompt.test.ts`
-
-- [x] **Test `DeepSeekProvider` via injected fake client** — Create `src/lib/llm/deepseek-provider.test.ts`. Construct provider with a fake `client` whose `chat.completions.create` is a `vi.fn()` returning controlled responses. Cover:
-  - (a) happy path: fake returns valid JSON for 8 terms → provider returns `ProviderAssessmentResult` with correctly-tallied `summary` and `truncated: false`; create called once.
-  - (b) schema-fail-then-success: first response is malformed JSON / wrong shape, second response valid → returns result; create called twice; second call's messages include the corrective-feedback message.
-  - (c) schema-fail-twice: both responses invalid → throws `LLMProviderError`; create called twice.
-  - (d) duplicate termId in first response → triggers retry (since `llmOutputSchema` enforces uniqueness); second response with unique IDs → success.
-  - (e) empty/null content in first response → triggers retry; second response valid → success (covers the "response was empty" branch).
-  - (f) truncation: contract text longer than `MAX_CONTRACT_CHARS` → returned `truncated === true`; assert the user message passed to create has length ≤ `MAX_CONTRACT_CHARS`.
-  All assertions go through the `LLMProvider` interface return value; no internal-state inspection. _Done when: all cases green._ Files: `src/lib/llm/deepseek-provider.test.ts`
-
-- [x] **Test `getProvider()` factory** — Create `src/lib/llm/index.test.ts`. Use `vi.stubEnv` / `vi.unstubAllEnvs`. Cover (a) default `LLM_PROVIDER` unset + `DEEPSEEK_API_KEY` set → returns a `DeepSeekProvider` instance; (b) `LLM_PROVIDER=deepseek` + `DEEPSEEK_API_KEY` unset → throws `LLMProviderError`; (c) `LLM_PROVIDER=anthropic` → throws `LLMProviderError("Unknown LLM provider: anthropic")`. _Done when: all cases green._ Files: `src/lib/llm/index.test.ts`
-
-- [x] **Run full toolchain** — `npm run typecheck && npm run lint && npm run test` all green; no new `any`; no direct LLM SDK calls outside `src/lib/llm/`. _Done when: all three commands exit 0._
-
----
-
-**Deferred to M5 (end-to-end pipeline), tracked here for visibility:** the execution-plan §M4 verification step "one smoke run against the real DeepSeek API on a small sample text" is naturally exercised by M5's full upload→assess flow against a real MSA — no separate M4 smoke harness needed.
+- [x] **Toolchain green** — `npm run typecheck && npm run lint && npm run test` all exit 0. No new `any`. No direct LLM SDK calls outside `src/lib/llm/`. No `openai`/`deepseek` references in `src/app/` or `src/components/`. _Done when: all three commands exit 0._
