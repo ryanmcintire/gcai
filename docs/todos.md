@@ -1,48 +1,55 @@
-# Milestone: M3 — Rubric + types + schema
+# Milestone: M4 — LLM provider + quote verification
 
-Pure data + zod validation. Zero I/O. All artifacts here are consumed by M4 (LLM provider) and M6 (renderer), so type names and rubric shape are load-bearing for downstream milestones.
+Credibility-critical milestone. Ships the `LLMProvider` interface, the single concrete `DeepSeekProvider`, the prompt assembly, the env-driven factory, and the `verifyQuotes` post-processor that enforces the CLAUDE.md mandate: never render an unverified quote.
 
-**Design note (resolves a cross-milestone ambiguity):** `Verdict` is a 5-state union including `"Verification Failed"`. The same `assessmentResultSchema` validates both (a) raw LLM output (where the LLM only emits the 4 LLM-producible verdicts) and (b) the post-`verifyQuotes` result (where some terms may have been downgraded to `"Verification Failed"` and had their quotes cleared). Carrying one schema avoids divergence between M4's validation and M6's rendering contract.
+**Design notes (resolving cross-milestone ambiguities):**
+
+1. **Provider return type is `ProviderAssessmentResult = Omit<AssessmentResult, "filename">`.** The provider does not know the filename — that is a UI/upload concern, added by the M5 server action. PRD §9.4 calls its interface a "sketch"; this refinement keeps LLM code free of file metadata while preserving the round-trip shape.
+2. **LLM output JSON shape is `{ terms: TermAssessment[] }` — no summary, no filename, no truncated flag.** The provider computes `summary` locally by counting verdicts (the LLM has no business tallying its own output) and sets `truncated` based on prompt assembly. A new `llmOutputSchema` in `src/lib/schema.ts` validates just `{ terms }`, reusing the M3-exported `termAssessmentSchema`.
+3. **Token-budget proxy is character-count, not real tokenization.** `MAX_CONTRACT_CHARS = 240_000` (≈60k tokens at ~4 chars/token English) — conservative; avoids pulling a tokenizer dependency for a prototype with a single LLM.
+4. **Mock-boundary clarification.** CLAUDE.md says "mock the LLM at the `LLMProvider` boundary, not by stubbing `fetch` or the SDK" — that rule governs *consumers* (server action, page tests). For testing `DeepSeekProvider` itself, the next-deeper boundary is the OpenAI SDK client; we inject a fake client via the constructor. That isolates the SDK without stubbing it globally.
 
 ## Todos
 
-- [x] **Define assessment types** — Create types per PRD §6.2 / §8.1 in `src/types/assessment.ts`:
-  - `Verdict = "Standard" | "Aggressive" | "Favorable" | "Not Found" | "Verification Failed"`
-  - `ExpectedPresence = "expected" | "usually_absent" | "optional"`
-  - `NotFoundInterpretation = "red_flag" | "neutral" | "favorable" | "manual_review"`
-  - `TermId` — string-literal union of the 8 stable snake_case IDs (see next todo for the list)
-  - `interface TermAssessment { termId: TermId; verdict: Verdict; quotedClause: string; rationale: string; sectionRef: string | null }`
-  - `interface AssessmentSummary { aggressive: number; standard: number; favorable: number; notFound: number; verificationFailed: number }`
-  - `interface AssessmentResult { filename: string; summary: AssessmentSummary; terms: TermAssessment[]; truncated?: boolean }`
-  Use `interface` for object shapes; `type` only for unions. _Done when: file compiles under strict TS, `TermId` is a string-literal union (not `string`), summary covers all 5 verdicts._ Files: `src/types/assessment.ts`
+- [x] **Define `LLMProvider` interface and provider-return type** — Create `src/lib/llm/types.ts`. Export: (a) `interface LLMProvider { assess(contractText: string, rubric: readonly RubricTerm[]): Promise<ProviderAssessmentResult> }`; (b) `type ProviderAssessmentResult = Omit<AssessmentResult, "filename">`; (c) `class LLMProviderError extends Error` with optional `cause`. _Done when: file compiles under strict TS; no `any`; `ProviderAssessmentResult` is a derived alias (not a re-declaration) so it stays in sync with `AssessmentResult`._ Files: `src/lib/llm/types.ts`
 
-- [x] **Author 8-term rubric data module** — Export `rubric: readonly RubricTerm[]` with exactly 8 entries in PRD-fixed order: `liability_cap`, `indemnification`, `data_ownership`, `ip_assignment`, `exclusivity`, `unlimited_liability_carveouts`, `warranty_disclaimers`, `non_compete_non_solicit`. Each entry: `{ id: TermId, label: string, expectedPresence, notFoundInterpretation, verdictCriteria: { aggressive: string, standard: string, favorable: string } }`. Verdict-criteria text is the verbatim PRD §8.2 cell content; `expectedPresence` / `notFoundInterpretation` from §8.1. Mark array `as const` so the literal types are preserved for the rubric test. _Done when: array has length 8, IDs match `TermId` union exactly (compile-time), order matches PRD §6.2 list._ Files: `src/lib/rubric.ts`
+- [x] **Add `llmOutputSchema` for raw LLM JSON + tests** — Extend `src/lib/schema.ts` with `llmOutputSchema = z.object({ terms: z.array(termAssessmentSchema).length(8) }).superRefine(unique-termIds)`. Same uniqueness rule as `assessmentResultSchema` refinement A. Export `llmOutputSchema`. Add cases to existing `src/lib/schema.test.ts` (do not create a parallel file — keep schema coverage co-located): (a) valid `{ terms: [...8] }` passes; (b) duplicate termIds fails (refinement); (c) 7 or 9 terms fails (length). _Done when: schema parses a valid 8-term `{ terms: [...] }` payload, rejects duplicate termIds, rejects fewer/more than 8._ Files: `src/lib/schema.ts`, `src/lib/schema.test.ts`
 
-- [x] **Author zod schema** — Build `assessmentResultSchema` mirroring `AssessmentResult` in `src/lib/schema.ts`. Enforce:
-  - `terms.length === 8`
-  - each `termId` belongs to the 8-ID enum (use `z.enum` with the same string literals as `TermId`)
-  - `verdict` belongs to the **5-state** enum (accepts both LLM-raw and post-verifyQuotes shapes per the design note above)
-  - `summary` has all 5 non-negative integer counts
-  - `truncated` is an optional boolean
-  - **Refinement A (`termId` uniqueness):** no two terms share a `termId`
-  - **Refinement B (quote rule):** `quotedClause` must be non-empty unless `verdict ∈ {"Not Found", "Verification Failed"}` — matches PRD §6.2 (quote required for assessed states) and the CLAUDE.md mandate "never render an unverified quote"
-  Export `termAssessmentSchema` separately for reuse in M4 retry logic. _Done when: schema parses a valid 8-term fixture, rejects each of the failure cases enumerated in the schema test todo._ Files: `src/lib/schema.ts`
+- [x] **Author prompt builder** — Create `src/lib/llm/prompt.ts`. Export `MAX_CONTRACT_CHARS = 240_000` and pure function `buildPrompt(contractText, rubric): { system: string; user: string; truncated: boolean }`. System prompt: persona (legal triage assistant), the 8-row rubric rendered as a compact table with `id`, `label`, `expectedPresence`, and the three verdict-criteria strings, plus the exact JSON output schema instruction (`{ "terms": [ { "termId": ..., "verdict": "Standard|Aggressive|Favorable|Not Found", "quotedClause": "...", "rationale": "...", "sectionRef": "..." | null } x 8 ] }` in PRD-fixed term order). Crucial instruction: "Quote the clause verbatim from the contract text; do not paraphrase. If the term is not present, set verdict to 'Not Found', quotedClause to empty string, sectionRef to null." User prompt: contract text, truncated to `MAX_CONTRACT_CHARS` if longer; if truncated, the truncation point is the char limit (suffix discarded). `truncated` flag returned. _Done when: short contract → `truncated === false`, long contract → `truncated === true` and `user.length ≤ MAX_CONTRACT_CHARS`, system prompt contains all 8 term IDs in PRD-fixed order._ Files: `src/lib/llm/prompt.ts`
 
-- [x] **Test rubric module** — Co-located test verifying: (a) `rubric.length === 8`; (b) `rubric.map(t => t.id)` deep-equals the PRD-fixed order list; (c) each term has all 4 metadata fields populated and all 3 verdict-criteria strings non-empty; (d) IDs are unique; (e) every rubric `id` is a valid `TermId` (compile-time covered by `as const`; test asserts it explicitly at runtime as a guardrail). _Done when: `npm run test -- --run src/lib/rubric.test.ts` passes._ Files: `src/lib/rubric.test.ts`
+- [x] **Implement `DeepSeekProvider`** — Create `src/lib/llm/deepseek-provider.ts`. Class `DeepSeekProvider implements LLMProvider`. Constructor: `({ apiKey: string, model?: string, baseURL?: string, client?: OpenAILike })` where `OpenAILike` is a local structural type — explicitly: `{ chat: { completions: { create: (params: { model: string; messages: Array<{ role: "system" | "user" | "assistant"; content: string }>; response_format: { type: "json_object" } }) => Promise<{ choices: Array<{ message: { content: string | null } }> }> } } }`. Defaults: `model = "deepseek-chat"`, `baseURL = "https://api.deepseek.com"`. If `client` not provided, constructs `new OpenAI({ apiKey, baseURL })`. `assess(contractText, rubric)`:
+  1. `const { system, user, truncated } = buildPrompt(contractText, rubric);`
+  2. First call: `client.chat.completions.create({ model, messages: [{role:"system",content:system},{role:"user",content:user}], response_format: { type: "json_object" } })`.
+  3. Extract `content = choices[0]?.message?.content`. If `content` is null/undefined/empty string → treat as a validation failure (do not throw mid-attempt — flow into retry path). Else `JSON.parse(content)` in a `try`/`catch`; a parse throw also flows into retry path. Else `llmOutputSchema.safeParse(parsed)`; if `success: false`, retry.
+  4. Retry once: append the prior assistant content (or empty placeholder if missing) + a corrective user message: `"Your previous response failed validation: <issues or 'response was not valid JSON' or 'response was empty'>. Return only valid JSON matching the schema described in the system prompt. Do not include any prose."` Repeat extract/parse/validate.
+  5. If retry also fails: `throw new LLMProviderError("LLM produced invalid output after one retry", cause)` where `cause` carries the last failure (parse error or zod issue list).
+  6. On success: compute `summary` by counting verdicts across `terms` (all 5 verdict states represented as integer counts — `verificationFailed` will be 0 here; `verifyQuotes` may bump it later); return `{ summary, terms, truncated }`.
+  Inject `client` for testability; do not read `process.env` in this file. _Done when: class compiles; happy-path unit test passes; retry-once-then-throw behavior covered by tests; missing/null content path covered; no `any` (the `OpenAILike` structural type narrows the surface)._ Files: `src/lib/llm/deepseek-provider.ts`
 
-- [x] **Test schema validation** — Co-located test covering, against a shared valid-fixture builder:
-  - valid full result passes (all 4 LLM-producible verdicts represented)
-  - valid post-verifyQuotes result with one `"Verification Failed"` term (empty quote) passes
-  - missing term (7 terms) fails
-  - extra term (9 terms) fails
-  - duplicate `termId` fails (refinement A)
-  - unknown `termId` fails
-  - invalid `verdict` string fails
-  - non-empty `quotedClause` required when `verdict === "Standard"` (refinement B fires)
-  - empty `quotedClause` allowed when `verdict === "Not Found"` and when `verdict === "Verification Failed"`
-  - negative summary count fails
-  _Done when: every case green; failure messages reference the offending field path._ Files: `src/lib/schema.test.ts`
+- [x] **Implement `verifyQuotes` post-processor** — Create `src/lib/llm/verify-quotes.ts`. Pure function `verifyQuotes(result: ProviderAssessmentResult, sourceText: string): ProviderAssessmentResult`. For each term:
+  - If `verdict` is `"Not Found"` or `"Verification Failed"`: pass through unchanged.
+  - Else: normalize both `term.quotedClause` and `sourceText` by `replace(/\s+/g, " ").trim()`; if normalized quote is a substring of normalized source, keep the term as-is; otherwise replace with `{ termId, verdict: "Verification Failed", quotedClause: "", rationale: "Quoted clause could not be verified against the source contract.", sectionRef: null }`.
+  - After processing all terms, recompute `summary` from the new term verdicts so counts reflect any downgrades. Return new object (do not mutate input). _Done when: every test case in the test todo passes; function is pure (same input → same output, no side effects, no env reads)._ Files: `src/lib/llm/verify-quotes.ts`
 
-- [x] **Verify TS-zod alignment** — Inside `schema.ts`, add a non-exported compile-time assertion that `z.infer<typeof assessmentResultSchema>` is mutually assignable with the `AssessmentResult` interface (both directions). No runtime cost. _Done when: `npm run typecheck` passes; deliberately breaking either side (locally) reproduces a tsc error — do not commit the break._ Files: `src/lib/schema.ts`
+- [x] **Implement `getProvider()` factory** — Create `src/lib/llm/index.ts`. Export `getProvider(): LLMProvider`. Read `process.env.LLM_PROVIDER ?? "deepseek"`. If `"deepseek"`: read `LLM_MODEL ?? "deepseek-chat"` and `DEEPSEEK_API_KEY` (throw `LLMProviderError("DEEPSEEK_API_KEY is not set")` if missing/empty), return `new DeepSeekProvider({ apiKey, model })`. For any other value: throw `LLMProviderError("Unknown LLM provider: <name>")`. Re-export `LLMProvider`, `ProviderAssessmentResult`, `LLMProviderError` from `./types`. _Done when: factory test cases all pass._ Files: `src/lib/llm/index.ts`
 
-- [x] **Run full toolchain** — `npm run typecheck && npm run lint && npm run test` all green; no new `any`. _Done when: all three commands exit 0._
+- [x] **Test `verifyQuotes`** — Create `src/lib/llm/verify-quotes.test.ts`. Cover (a) exact verbatim match → term unchanged; (b) whitespace-tolerant match (extra newlines/spaces in source, single-spaced in quote) → unchanged; (c) outright mismatch → term replaced with `"Verification Failed"`, empty quote, generic rationale, null sectionRef; (d) input verdict `"Not Found"` → unchanged regardless of `quotedClause` content; (e) input verdict already `"Verification Failed"` → unchanged; (f) after one downgrade, `summary` reflects the new counts (e.g., `standard` decremented and `verificationFailed` incremented); (g) function returns a new object — does not mutate the input. _Done when: all cases green; `npm run test -- --run src/lib/llm/verify-quotes.test.ts` exits 0._ Files: `src/lib/llm/verify-quotes.test.ts`
+
+- [x] **Test prompt builder** — Create `src/lib/llm/prompt.test.ts`. Cover (a) short text → `truncated === false`; user prompt contains the input contract text verbatim; system prompt contains all 8 termIds in PRD-fixed order and references all three verdict-criteria buckets per term; (b) long text (length > `MAX_CONTRACT_CHARS`) → `truncated === true`, `user.length ≤ MAX_CONTRACT_CHARS`; (c) system prompt mentions the 4 LLM-producible verdicts (`Standard`, `Aggressive`, `Favorable`, `Not Found`) and instructs verbatim quoting. _Done when: all assertions pass._ Files: `src/lib/llm/prompt.test.ts`
+
+- [x] **Test `DeepSeekProvider` via injected fake client** — Create `src/lib/llm/deepseek-provider.test.ts`. Construct provider with a fake `client` whose `chat.completions.create` is a `vi.fn()` returning controlled responses. Cover:
+  - (a) happy path: fake returns valid JSON for 8 terms → provider returns `ProviderAssessmentResult` with correctly-tallied `summary` and `truncated: false`; create called once.
+  - (b) schema-fail-then-success: first response is malformed JSON / wrong shape, second response valid → returns result; create called twice; second call's messages include the corrective-feedback message.
+  - (c) schema-fail-twice: both responses invalid → throws `LLMProviderError`; create called twice.
+  - (d) duplicate termId in first response → triggers retry (since `llmOutputSchema` enforces uniqueness); second response with unique IDs → success.
+  - (e) empty/null content in first response → triggers retry; second response valid → success (covers the "response was empty" branch).
+  - (f) truncation: contract text longer than `MAX_CONTRACT_CHARS` → returned `truncated === true`; assert the user message passed to create has length ≤ `MAX_CONTRACT_CHARS`.
+  All assertions go through the `LLMProvider` interface return value; no internal-state inspection. _Done when: all cases green._ Files: `src/lib/llm/deepseek-provider.test.ts`
+
+- [x] **Test `getProvider()` factory** — Create `src/lib/llm/index.test.ts`. Use `vi.stubEnv` / `vi.unstubAllEnvs`. Cover (a) default `LLM_PROVIDER` unset + `DEEPSEEK_API_KEY` set → returns a `DeepSeekProvider` instance; (b) `LLM_PROVIDER=deepseek` + `DEEPSEEK_API_KEY` unset → throws `LLMProviderError`; (c) `LLM_PROVIDER=anthropic` → throws `LLMProviderError("Unknown LLM provider: anthropic")`. _Done when: all cases green._ Files: `src/lib/llm/index.test.ts`
+
+- [x] **Run full toolchain** — `npm run typecheck && npm run lint && npm run test` all green; no new `any`; no direct LLM SDK calls outside `src/lib/llm/`. _Done when: all three commands exit 0._
+
+---
+
+**Deferred to M5 (end-to-end pipeline), tracked here for visibility:** the execution-plan §M4 verification step "one smoke run against the real DeepSeek API on a small sample text" is naturally exercised by M5's full upload→assess flow against a real MSA — no separate M4 smoke harness needed.

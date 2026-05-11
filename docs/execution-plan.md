@@ -96,7 +96,7 @@ Stretch (cut if running long, per PRD §10): PDF/markdown export, chunked long-c
 
 ---
 
-## M4 — LLM provider + quote verification (~1.25 h)
+## M4 — LLM provider + quote verification (~1.25 h) ✅
 
 **Goal:** A swappable `LLMProvider` with one concrete `DeepSeekProvider`. Output is zod-validated and quote-verified before returning. This is the credibility-critical milestone.
 

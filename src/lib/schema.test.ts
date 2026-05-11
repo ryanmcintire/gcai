@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assessmentResultSchema } from "./schema";
+import { assessmentResultSchema, llmOutputSchema } from "./schema";
 import type {
   AssessmentResult,
   TermAssessment,
@@ -176,5 +176,41 @@ describe("assessmentResultSchema", () => {
     const result = buildValidResult();
     result.summary = { ...result.summary, aggressive: -1 };
     expect(assessmentResultSchema.safeParse(result).success).toBe(false);
+  });
+});
+
+describe("llmOutputSchema", () => {
+  it("accepts a valid 8-term payload", () => {
+    const result = buildValidResult();
+    expect(llmOutputSchema.safeParse({ terms: result.terms }).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects duplicate termIds", () => {
+    const result = buildValidResult();
+    const terms = [...result.terms];
+    terms[1] = buildTerm({ termId: "liability_cap" });
+    const parsed = llmOutputSchema.safeParse({ terms });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(JSON.stringify(parsed.error.issues)).toContain("Duplicate termId");
+    }
+  });
+
+  it("rejects fewer than 8 terms", () => {
+    const result = buildValidResult();
+    expect(
+      llmOutputSchema.safeParse({ terms: result.terms.slice(0, 7) }).success,
+    ).toBe(false);
+  });
+
+  it("rejects more than 8 terms", () => {
+    const result = buildValidResult();
+    expect(
+      llmOutputSchema.safeParse({
+        terms: [...result.terms, buildTerm({ termId: "liability_cap" })],
+      }).success,
+    ).toBe(false);
   });
 });

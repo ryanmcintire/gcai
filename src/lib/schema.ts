@@ -69,6 +69,24 @@ export const assessmentResultSchema = z
     });
   });
 
+export const llmOutputSchema = z
+  .object({
+    terms: z.array(termAssessmentSchema).length(8),
+  })
+  .superRefine((data, ctx) => {
+    const seen = new Set<string>();
+    data.terms.forEach((term, i) => {
+      if (seen.has(term.termId)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate termId: ${term.termId}`,
+          path: ["terms", i, "termId"],
+        });
+      }
+      seen.add(term.termId);
+    });
+  });
+
 type Inferred = z.infer<typeof assessmentResultSchema>;
 type AssertExtends<A, B> = A extends B ? true : false;
 const _typeAlignment: [
