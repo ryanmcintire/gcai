@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { assessContract, type AssessResult } from "@/app/actions";
+import { Report } from "@/components/report";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -132,16 +133,13 @@ export function UploadForm() {
       )}
 
       {success && (
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">{success.result.filename}</p>
+        <div className="flex flex-col gap-3">
+          <div className="flex justify-end">
             <Button variant="outline" size="sm" onClick={reset}>
               Upload another
             </Button>
           </div>
-          <pre className="max-h-[60vh] overflow-auto rounded-md border bg-muted p-3 text-xs whitespace-pre-wrap break-words">
-            {JSON.stringify(success.result, null, 2)}
-          </pre>
+          <Report result={success.result} />
         </div>
       )}
     </div>

@@ -2,7 +2,9 @@
 
 ## Current focus
 
-**M5 — End-to-end pipeline** (complete). Next: **M6 — Results page UI**.
+**M6 — Results page UI** (complete). Next: **M7 — QA pass + polish + JSON download**.
+
+M6 shipped: `src/components/disclaimer.tsx` (verbatim PRD §6.3 amber-tinted banner); `src/components/verdict-badge.tsx` (8-key `BADGE_LABELS`/`BADGE_CLASSES` map keyed on a discriminated string so verdict + `notFoundInterpretation` produce 8 distinct visual states — Aggressive/Standard/Favorable get base colors, Verification Failed gets a distinct red-orange treatment, and Not Found splits 4 ways via `notFoundInterpretation`); `src/components/report.tsx` (header with filename, summary line `X Aggressive · Y Standard · Z Favorable · N Not Found` plus optional `M could not be verified` sub-line, conditional truncation banner, per-term cards in PRD-fixed `rubric` order with `data-term-id` for test stability, quoted-clause hidden for Not Found / Verification Failed per CLAUDE.md mandate, disclaimer at bottom). `upload-form.tsx` now renders `<Report result={success.result} />` and a single right-aligned "Upload another" button (no duplicate filename). `page.tsx` subtitle updated. Tests: 15 new cases — `verdict-badge.test.tsx` (7) covering all 5 base verdicts + 4 `Not Found` variants + slot wiring, `report.test.tsx` (8) covering filename/summary, verbatim disclaimer, truncation-banner conditional, quote rendered for Standard, quote hidden for Not Found and Verification Failed, PRD-fixed card order via `data-term-id`, and verificationFailed sub-line conditional. Toolchain green: typecheck, lint, 73 tests across 12 files.
 
 M5 shipped: `src/app/actions.ts` now wires `parseDocx` → `getProvider().assess` → `verifyQuotes` → `assessmentResultSchema.safeParse` (defensive last-mile guard) → returns `AssessmentResult` with `filename` attached. Catch block branches on `ParseError`, `LLMProviderError`, and a generic "Could not complete the assessment" fallback. `AssessResult` success variant is now `{ ok: true; result: AssessmentResult }` (M2 placeholder `text` removed). `upload-form.tsx` renders `JSON.stringify(success.result, null, 2)` and shows "Parsing DOCX and assessing terms…" during the in-flight server action. `page.tsx` subtitle updated. Tests: 7 new cases in `src/app/actions.test.ts` covering happy path, truncated bubble-through, `verifyQuotes` wiring (forced downgrade), `LLMProviderError` surfacing, final schema-validation failure, file-validation short-circuit (provider not invoked), and generic-error fallback. Mocks `getProvider` at the `LLMProvider` boundary via `vi.importActual` (CLAUDE.md mandate); `parseDocx` mocked alongside to avoid mammoth fixtures. Toolchain green: typecheck, lint, 58 tests across 10 files.
 
@@ -21,7 +23,7 @@ See [execution-plan.md](execution-plan.md) for the full milestone breakdown and 
 - [x] **M3 — Rubric + types + schema** (~0.75 h) — pure data module + zod schemas
 - [x] **M4 — LLM provider + quote verification** (~1.25 h) — `DeepSeekProvider` returns validated, quote-verified `AssessmentResult`
 - [x] **M5 — End-to-end pipeline** (~0.5 h) — drop DOCX → see real assessment as raw JSON
-- [ ] **M6 — Results page UI** (~1.5 h) — demo-ready report (cards, badges, summary, disclaimer)
+- [x] **M6 — Results page UI** (~1.5 h) — demo-ready report (cards, badges, summary, disclaimer)
 - [ ] **M7 — QA pass + polish + JSON download** (~1.0 h) — verdicts qualitatively correct on 3 MSAs
 
 **Stretch (out of scope for v0):** PDF/markdown export, chunked >60k-token retrieval, severity weighting, eval harness.

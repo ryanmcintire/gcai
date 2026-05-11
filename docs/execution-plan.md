@@ -142,7 +142,7 @@ Stretch (cut if running long, per PRD §10): PDF/markdown export, chunked long-c
 
 ---
 
-## M6 — Results page UI (~1.5 h)
+## M6 — Results page UI (~1.5 h) ✅
 
 **Goal:** Demo-ready report rendering per PRD §7 / §6.3.
 
