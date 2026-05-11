@@ -24,21 +24,20 @@ const BADGE_LABELS: Record<BadgeKey, string> = {
 
 const BADGE_CLASSES: Record<BadgeKey, string> = {
   aggressive:
-    "bg-red-100 text-red-900 border-red-300 dark:bg-red-950/60 dark:text-red-100 dark:border-red-800",
+    "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900/60",
   standard:
-    "bg-slate-100 text-slate-900 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700",
+    "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:border-slate-700",
   favorable:
-    "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-100 dark:border-emerald-800",
+    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900/60",
   verification_failed:
-    "bg-orange-100 text-orange-900 border-orange-400 dark:bg-orange-950/60 dark:text-orange-100 dark:border-orange-800",
+    "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:border-orange-900/60",
   "not_found:red_flag":
-    "bg-red-100 text-red-900 border-red-300 dark:bg-red-950/60 dark:text-red-100 dark:border-red-800",
-  "not_found:neutral":
-    "bg-muted text-muted-foreground border-border",
+    "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-900/60",
+  "not_found:neutral": "bg-muted text-muted-foreground border-border",
   "not_found:favorable":
-    "bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-100 dark:border-emerald-800",
+    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900/60",
   "not_found:manual_review":
-    "bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950/60 dark:text-blue-100 dark:border-blue-800",
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60",
 };
 
 function resolveKey(
@@ -71,6 +70,10 @@ export function VerdictBadge({
   const key = resolveKey(verdict, notFoundInterpretation);
   return (
     <Badge variant="outline" className={BADGE_CLASSES[key]}>
+      <span
+        aria-hidden="true"
+        className="inline-block size-1.5 rounded-full bg-current opacity-70"
+      />
       {BADGE_LABELS[key]}
     </Badge>
   );

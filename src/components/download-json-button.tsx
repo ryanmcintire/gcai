@@ -1,5 +1,7 @@
 "use client";
 
+import { Download } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import type { AssessmentResult } from "@/types/assessment";
 
@@ -31,6 +33,7 @@ export function DownloadJsonButton({ result }: DownloadJsonButtonProps) {
 
   return (
     <Button variant="outline" size="sm" onClick={handleClick}>
+      <Download aria-hidden="true" />
       Download JSON
     </Button>
   );

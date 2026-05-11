@@ -1,18 +1,22 @@
+import { AppShell } from "@/components/app-shell";
 import { UploadForm } from "@/components/upload-form";
 
 export default function Page() {
   return (
-    <main className="mx-auto flex min-h-dvh max-w-3xl flex-col gap-6 p-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
+    <AppShell>
+      <header className="flex flex-col gap-3">
+        <span className="font-mono text-[0.7rem] tracking-[0.18em] text-muted-foreground uppercase">
+          Vendor contract triage
+        </span>
+        <h1 className="text-3xl font-semibold tracking-tight text-balance">
           Contract Benchmark Assistant
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="max-w-[60ch] text-sm text-muted-foreground">
           Upload a vendor DOCX (≤10 MB) to get a structured triage report
           against B2B SaaS norms across 8 high-signal terms.
         </p>
       </header>
       <UploadForm />
-    </main>
+    </AppShell>
   );
 }

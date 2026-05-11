@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertCircle, ArrowLeft, Loader2, Upload } from "lucide-react";
 import {
   useRef,
   useState,
@@ -10,6 +11,7 @@ import {
 
 import { assessContract, type AssessResult } from "@/app/actions";
 import { Report } from "@/components/report";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -101,43 +103,38 @@ export function UploadForm() {
         }}
         aria-busy={isPending}
         className={cn(
-          "flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 p-6 text-center transition-colors",
-          isDragging && "border-primary bg-primary/10",
-          isPending && "pointer-events-none opacity-60",
+          "group/dropzone relative flex min-h-44 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-10 text-center shadow-xs transition-all hover:border-foreground/20 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          isDragging &&
+            "border-brand/60 ring-2 ring-brand/30 ring-offset-2 ring-offset-background",
+          isPending && "pointer-events-none opacity-70",
         )}
       >
         {isPending ? (
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <svg
-              className="h-4 w-4 animate-spin text-muted-foreground"
-              viewBox="0 0 24 24"
-              fill="none"
+          <div className="flex flex-col items-center gap-2">
+            <Loader2
               aria-hidden="true"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-              />
-            </svg>
-            <span>Parsing DOCX and assessing terms…</span>
+              className="size-7 animate-spin text-muted-foreground"
+            />
+            <p className="text-sm font-medium">
+              Parsing DOCX and assessing terms…
+            </p>
+            <p className="text-xs text-muted-foreground">
+              This usually takes 10–20 seconds.
+            </p>
           </div>
         ) : (
-          <p className="text-sm font-medium">
-            Drop a .docx vendor contract here, or click to select
-          </p>
+          <div className="flex flex-col items-center gap-2">
+            <span className="inline-flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors group-hover/dropzone:bg-brand/10 group-hover/dropzone:text-brand">
+              <Upload aria-hidden="true" className="size-5" />
+            </span>
+            <p className="text-sm font-medium">
+              Drop a .docx vendor contract here, or click to select
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Max 10 MB · .docx only
+            </p>
+          </div>
         )}
-        <p className="text-xs text-muted-foreground">
-          Max 10 MB · .docx only
-        </p>
         <input
           ref={inputRef}
           type="file"
@@ -148,18 +145,21 @@ export function UploadForm() {
       </div>
 
       {errorMessage && (
-        <div
+        <Alert
+          tone="danger"
           role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+          icon={<AlertCircle />}
+          className="border-destructive/30 bg-destructive/5 text-destructive dark:border-destructive/40 dark:bg-destructive/10 dark:text-destructive"
         >
           {errorMessage}
-        </div>
+        </Alert>
       )}
 
       {success && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           <div className="flex justify-end">
-            <Button variant="outline" size="sm" onClick={reset}>
+            <Button variant="ghost" size="sm" onClick={reset}>
+              <ArrowLeft aria-hidden="true" />
               Upload another
             </Button>
           </div>
