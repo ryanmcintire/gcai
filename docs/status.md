@@ -2,7 +2,11 @@
 
 ## Current focus
 
-**M3 — Rubric + types + schema** (next)
+**M3 — Rubric + types + schema** (in progress — phase: implement, 1/7 todos done)
+
+Implemented `src/types/assessment.ts`: 5-state `Verdict`, `ExpectedPresence`, `NotFoundInterpretation`, string-literal `TermId` (8 IDs), and the `TermAssessment` / `AssessmentSummary` / `AssessmentResult` / `RubricTerm` interfaces. `typecheck` green. Next: author the 8-term rubric data module in `src/lib/rubric.ts`.
+
+Plan critiqued once. Sharpenings: (1) `AssessmentSummary` now spelled out with all 5 verdict counts (incl. `verificationFailed`); (2) schema refinement B allows empty `quotedClause` when `verdict ∈ {"Not Found", "Verification Failed"}` per CLAUDE.md's "never render an unverified quote" mandate; (3) explicit design note that one `assessmentResultSchema` serves both M4's raw-LLM validation and the post-`verifyQuotes` result — avoids divergent schemas.
 
 M2 shipped: drag-drop upload, `assessContract` server action, `parseDocx` using `mammoth.extractRawText`. Result rendered in `<pre>` for paragraph-break verification. Tracked-changes confirmed handled by mammoth defaults — no manual stripping. `serverActions.bodySizeLimit` set to `11mb` in [next.config.ts](../next.config.ts). 4 new tests green against `src/lib/__fixtures__/sample.docx`.
 

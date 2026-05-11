@@ -1,0 +1,6 @@
+{
+  "milestone": 2,
+  "phase": "implement",
+  "attempts": 0,
+  "notes": "M3 in progress: 1/7 todos done. Implemented src/types/assessment.ts (Verdict 5-state, ExpectedPresence, NotFoundInterpretation, TermId 8-literal union, TermAssessment, AssessmentSummary with all 5 counts, AssessmentResult, RubricTerm). typecheck green. Next todo: author 8-term rubric data module in src/lib/rubric.ts."
+}
